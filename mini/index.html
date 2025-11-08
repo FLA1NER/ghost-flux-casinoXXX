@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ghost FluX Casino</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .neon-text {
+            font-size: 28px;
+            font-weight: bold;
+            color: #00ffff;
+            text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 30px #00ffff;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff; }
+            to { text-shadow: 0 0 15px #00ffff, 0 0 30px #00ffff, 0 0 40px #00ffff; }
+        }
+
+        .balance-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #00ffff;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+        }
+
+        .balance-amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00ff00;
+            text-shadow: 0 0 10px #00ff00;
+        }
+
+        .game-section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #ff00ff;
+            text-shadow: 0 0 10px #ff00ff;
+        }
+
+        .game-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .game-btn {
+            background: linear-gradient(45deg, #ff00ff, #00ffff);
+            border: none;
+            border-radius: 10px;
+            padding: 15px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+
+        .game-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.8);
+        }
+
+        .game-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .bonus-btn {
+            background: linear-gradient(45deg, #ff9900, #ffcc00);
+            width: 100%;
+        }
+
+        .inventory-btn {
+            background: linear-gradient(45deg, #00ff00, #00cc00);
+            width: 100%;
+        }
+
+        .result-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .result-content {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            border: 2px solid #00ffff;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+
+        .won-item {
+            font-size: 48px;
+            margin: 20px 0;
+        }
+
+        .won-text {
+            font-size: 24px;
+            color: #00ff00;
+            margin-bottom: 20px;
+        }
+
+        .close-btn {
+            background: #ff00ff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 20px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .lightning {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            opacity: 0;
+        }
+
+        @keyframes lightning {
+            0% { opacity: 0; }
+            50% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="neon-text">👻 Ghost FluX</h1>
+            <p>Казино подарков</p>
+        </div>
+
+        <div class="balance-card">
+            <h3>Ваш баланс</h3>
+            <div class="balance-amount" id="balance">0 ⭐</div>
+        </div>
+
+        <div class="game-section">
+            <h3 class="section-title">🎰 Игровые режимы</h3>
+            <div class="game-buttons">
+                <button class="game-btn" onclick="openCase()">
+                    🎁 Gift Box<br>
+                    <small>25 звёзд</small>
+                </button>
+                <button class="game-btn" onclick="spinRoulette()">
+                    🎡 Roulette<br>
+                    <small>50 звёзд</small>
+                </button>
+            </div>
+            
+            <button class="game-btn bonus-btn" onclick="openBonus()" id="bonusBtn">
+                🎯 Бонусный кейс
+            </button>
+        </div>
+
+        <button class="game-btn inventory-btn" onclick="showInventory()">
+            📦 Мой инвентарь
+        </button>
+
+        <div class="loading" id="loading">
+            <p>Открываем...</p>
+        </div>
+    </div>
+
+    <!-- Модальное окно результата -->
+    <div class="result-modal" id="resultModal">
+        <div class="result-content">
+            <div class="won-item" id="wonItemEmoji">🎁</div>
+            <div class="won-text" id="wonItemText">Вы выиграли подарок!</div>
+            <button class="close-btn" onclick="closeResult()">Продолжить</button>
+        </div>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        let userBalance = 0;
+        let userId = null;
+
+        // Инициализация
+        tg.expand();
+        tg.ready();
+
+        // Получаем user_id из параметров URL
+        const urlParams = new URLSearchParams(window.location.search);
+        userId = urlParams.get('startapp');
+
+        // Загружаем данные пользователя
+        loadUserData();
+
+        async function loadUserData() {
+            try {
+                const response = await fetch(`https://your-server-url.vercel.app/api/user/${userId}`);
+                const userData = await response.json();
+                userBalance = userData.balance || 0;
+                document.getElementById('balance').textContent = userBalance + ' ⭐';
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
+        }
+
+        async function openCase() {
+            if (userBalance < 25) {
+                alert('Недостаточно звёзд!');
+                return;
+            }
+
+            showLoading(true);
+            
+            try {
+                const response = await fetch('https://your-server-url.vercel.app/api/open-case', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        userId: userId
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    userBalance = result.newBalance;
+                    document.getElementById('balance').textContent = userBalance + ' ⭐';
+                    showResult(result.wonItem);
+                } else {
+                    alert('Ошибка: ' + result.error);
+                }
+            } catch (error) {
+                alert('Ошибка соединения');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function spinRoulette() {
+            if (userBalance < 50) {
+                alert('Недостаточно звёзд!');
+                return;
+            }
+
+            showLoading(true);
+            
+            try {
+                const response = await fetch('https://your-server-url.vercel.app/api/spin-roulette', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        userId: userId
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    userBalance = result.newBalance;
+                    document.getElementById('balance').textContent = userBalance + ' ⭐';
+                    showResult(result.wonItem);
+                } else {
+                    alert('Ошибка: ' + result.error);
+                }
+            } catch (error) {
+                alert('Ошибка соединения');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function openBonus() {
+            alert('Бонусный кейс будет доступен после настройки сервера');
+        }
+
+        function showInventory() {
+            alert('Инвентарь будет доступен в следующем обновлении');
+        }
+
+        function showResult(wonItem) {
+            document.getElementById('wonItemEmoji').textContent = wonItem.emoji;
+            document.getElementById('wonItemText').textContent = `Вы выиграли ${wonItem.name} (${wonItem.price} звёзд)!`;
+            document.getElementById('resultModal').style.display = 'flex';
+            
+            // Анимация молнии
+            createLightningEffect();
+        }
+
+        function closeResult() {
+            document.getElementById('resultModal').style.display = 'none';
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function createLightningEffect() {
+            const lightning = document.createElement('div');
+            lightning.className = 'lightning';
+            lightning.style.background = 'linear-gradient(45deg, transparent, #00ffff, transparent)';
+            lightning.style.animation = 'lightning 0.3s ease-in-out';
+            
+            document.body.appendChild(lightning);
+            
+            setTimeout(() => {
+                lightning.remove();
+            }, 300);
+        }
+    </script>
+</body>
+</html>
