@@ -2,6 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { supabase } from '../config/database.js';
 import { AdminPanel } from './admin.js';
 import { GameLogic } from '../game/logic.js';
+import { DatabaseOperations } from '../database/operations.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -239,36 +240,17 @@ bot.hears('📞 Поддержка', (ctx) => {
 
 // Функции работы с базой данных
 async function registerUser(telegramId, username, firstName) {
-  const { data, error } = await supabase
-    .from('users')
-    .upsert({
-      telegram_id: telegramId,
-      username: username,
-      first_name: firstName,
-      balance: 0,
-      last_bonus_claim: null
-    }, { onConflict: 'telegram_id' });
-    
+  const { data, error } = await DatabaseOperations.createUser(telegramId, username, firstName);
   return { data, error };
 }
 
 async function getUser(telegramId) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('telegram_id', telegramId)
-    .single();
-    
-  return data || { balance: 0 };
+  const { data, error } = await DatabaseOperations.getUser(telegramId);
+  return data || { balance: 0, username: 'user', first_name: 'User' };
 }
 
 async function getUserInventory(telegramId) {
-  const { data, error } = await supabase
-    .from('inventory')
-    .select('*')
-    .eq('user_id', telegramId)
-    .eq('status', 'active');
-    
+  const { data, error } = await DatabaseOperations.getUserInventory(telegramId);
   return data || [];
 }
 
