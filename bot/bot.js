@@ -9,7 +9,7 @@ dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// Главное меню
+// Главное меню с Reply-клавиатурой
 bot.start(async (ctx) => {
   const userId = ctx.from.id;
   const username = ctx.from.username || ctx.from.first_name;
@@ -33,7 +33,7 @@ bot.start(async (ctx) => {
     ['🎰 Открыть Казино', '⭐️ Мой баланс'],
     ['🎁 Мой инвентарь', '📱 Пополнить баланс'],
     ['ℹ️ Правила', '📞 Поддержка']
-  ]).resize();
+  ]).resize().oneTime();
 
   await ctx.reply(menuText, { 
     parse_mode: 'Markdown', 
@@ -50,7 +50,7 @@ bot.command('admin', async (ctx) => {
   const adminKeyboard = Markup.keyboard([
     ['👤 Пополнить баланс', '📊 Статистика'],
     ['📨 Заявки на вывод', '⬅️ Главное меню']
-  ]).resize();
+  ]).resize().oneTime();
   
   ctx.reply('⚙️ *Админ панель Ghost FluX*', { 
     parse_mode: 'Markdown',
@@ -58,7 +58,82 @@ bot.command('admin', async (ctx) => {
   });
 });
 
-// Пополнение баланса (админ)
+// Обработка кнопок Reply-клавиатуры
+bot.hears('🎰 Открыть Казино', (ctx) => {
+  const miniAppUrl = `https://ghost-flux-casino-xxx.vercel.app?startapp=${ctx.from.id}`;
+  ctx.reply('🎮 *Открываем казино...*', {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      Markup.button.webApp('🚀 Играть сейчас', miniAppUrl)
+    ])
+  });
+});
+
+bot.hears('⭐️ Мой баланс', async (ctx) => {
+  const user = await getUser(ctx.from.id);
+  ctx.reply(`✨ *Ваш баланс:* ${user.balance} звёзд\n\n💎 *Цены пополнения:*\n50 звёзд - 85 руб\n100 звёзд - 169 руб\n200 звёзд - 339 руб`, { 
+    parse_mode: 'Markdown' 
+  });
+});
+
+bot.hears('🎁 Мой инвентарь', async (ctx) => {
+  const inventory = await getUserInventory(ctx.from.id);
+  if (inventory.length === 0) {
+    return ctx.reply('📦 Ваш инвентарь пуст. Откройте кейсы чтобы получить подарки!');
+  }
+  
+  let inventoryText = '🎁 *Ваш инвентарь:*\n\n';
+  inventory.forEach((item) => {
+    inventoryText += `${item.item_emoji} *${item.item_name}* - ${item.item_price} звёзд\n`;
+  });
+  
+  ctx.reply(inventoryText, { parse_mode: 'Markdown' });
+});
+
+bot.hears('📱 Пополнить баланс', (ctx) => {
+  ctx.reply(`💎 *Пополнение баланса*
+
+Для пополнения баланса напишите:
+@KXKXKXKXKXKXKXKXKXKXK
+
+💫 *Цены:*
+50 звёзд - 85 руб
+100 звёзд - 169 руб  
+200 звёзд - 339 руб
+
+После оплаты администратор пополнит ваш баланс!`, {
+    parse_mode: 'Markdown'
+  });
+});
+
+bot.hears('ℹ️ Правила', (ctx) => {
+  const rulesText = `📖 *Правила Ghost FluX Casino*
+
+🎰 *Общие положения:*
+• Игровая валюта - звёзды
+• Минимальное пополнение - 50 звёзд
+• Вывод подарков в течение 3 часов
+
+🎁 *Кейсы:*
+• Gift Box - 25 звёзд
+• Ghost Roulette - 50 звёзд
+• Бонусный кейс - бесплатно раз в 24ч
+
+⚠️ *Важно:*
+• Администратор не несет ответственности за игровую валюту
+• Игрок может как выиграть, так и проиграть звёзды
+• Запрещено создание мультиаккаунтов`;
+
+  ctx.reply(rulesText, { parse_mode: 'Markdown' });
+});
+
+bot.hears('📞 Поддержка', (ctx) => {
+  ctx.reply('📞 *Техническая поддержка*\n\nПо вопросам пополнения баланса и вывода подарков:\n@KXKXKXKXKXKXKXKXKXKXK', {
+    parse_mode: 'Markdown'
+  });
+});
+
+// Админ функции
 bot.hears('👤 Пополнить баланс', async (ctx) => {
   if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) {
     return ctx.reply('⛔️ Доступ запрещен');
@@ -69,12 +144,36 @@ bot.hears('👤 Пополнить баланс', async (ctx) => {
   });
 });
 
+bot.hears('📊 Статистика', async (ctx) => {
+  if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
+  
+  try {
+    const stats = await AdminPanel.getStats();
+    const statsText = `📊 *Статистика Ghost FluX*
+
+👥 Всего пользователей: ${stats.totalUsers}
+⭐️ Всего звёзд в системе: ${stats.totalStars}
+💰 Средний баланс: ${Math.round(stats.averageBalance)} звёзд`;
+
+    ctx.reply(statsText, { parse_mode: 'Markdown' });
+  } catch (error) {
+    ctx.reply(`❌ Ошибка: ${error.message}`);
+  }
+});
+
+bot.hears('⬅️ Главное меню', (ctx) => {
+  ctx.reply('Возвращаемся в главное меню...', 
+    Markup.removeKeyboard()
+  );
+  ctx.start();
+});
+
 // Обработка пополнения баланса
 bot.on('text', async (ctx) => {
   if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
   
   const text = ctx.message.text;
-  if (text.startsWith('@') || !isNaN(parseInt(text.split(' ')[0]))) {
+  if ((text.startsWith('@') || !isNaN(parseInt(text.split(' ')[0]))) && text.includes(' ')) {
     const [identifier, amountStr] = text.split(' ');
     const amount = parseInt(amountStr);
     
@@ -107,135 +206,6 @@ bot.on('text', async (ctx) => {
       ctx.reply(`❌ Ошибка: ${error.message}`);
     }
   }
-});
-
-// Статистика (админ)
-bot.hears('📊 Статистика', async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
-  
-  try {
-    const stats = await AdminPanel.getStats();
-    const statsText = `📊 *Статистика Ghost FluX*
-
-👥 Всего пользователей: ${stats.totalUsers}
-⭐️ Всего звёзд в системе: ${stats.totalStars}
-💰 Средний баланс: ${Math.round(stats.averageBalance)} звёзд`;
-
-    ctx.reply(statsText, { parse_mode: 'Markdown' });
-  } catch (error) {
-    ctx.reply(`❌ Ошибка: ${error.message}`);
-  }
-});
-
-// Заявки на вывод (админ)
-bot.hears('📨 Заявки на вывод', async (ctx) => {
-  if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
-  
-  try {
-    const requests = await AdminPanel.getWithdrawalRequests();
-    
-    if (requests.length === 0) {
-      return ctx.reply('📭 Нет pending заявок на вывод');
-    }
-    
-    let requestsText = '📨 *Заявки на вывод:*\n\n';
-    requests.forEach((request, index) => {
-      requestsText += `${index + 1}. @${request.users.username}\n`;
-      requestsText += `   ${request.inventory.item_emoji} ${request.inventory.item_name} (${request.inventory.item_price} звёзд)\n`;
-      requestsText += `   ID заявки: ${request.id}\n\n`;
-    });
-    
-    ctx.reply(requestsText, { parse_mode: 'Markdown' });
-    
-  } catch (error) {
-    ctx.reply(`❌ Ошибка: ${error.message}`);
-  }
-});
-
-// Открытие Mini App
-bot.hears('🎰 Открыть Казино', (ctx) => {
-  const miniAppUrl = `https://your-mini-app-url.vercel.app?startapp=${ctx.from.id}`;
-  ctx.reply('🎮 *Открываем казино...*', {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      Markup.button.webApp('🚀 Играть сейчас', miniAppUrl)
-    ])
-  });
-});
-
-// Баланс
-bot.hears('⭐️ Мой баланс', async (ctx) => {
-  const user = await getUser(ctx.from.id);
-  ctx.reply(`✨ *Ваш баланс:* ${user.balance} звёзд\n\n💎 *Цены пополнения:*\n50 звёзд - 85 руб\n100 звёзд - 169 руб\n200 звёзд - 339 руб`, { 
-    parse_mode: 'Markdown' 
-  });
-});
-
-// Инвентарь с кнопками
-bot.hears('🎁 Мой инвентарь', async (ctx) => {
-  const inventory = await getUserInventory(ctx.from.id);
-  if (inventory.length === 0) {
-    return ctx.reply('📦 Ваш инвентарь пуст. Откройте кейсы чтобы получить подарки!');
-  }
-  
-  let inventoryText = '🎁 *Ваш инвентарь:*\n\n';
-  const buttons = [];
-  
-  inventory.forEach((item, index) => {
-    inventoryText += `${item.item_emoji} *${item.item_name}* - ${item.item_price} звёзд\n`;
-    
-    if (index % 2 === 0) {
-      buttons.push([
-        Markup.button.callback(`🎁 ${item.item_name}`, `withdraw_${item.id}`),
-        Markup.button.callback(`💰 Продать`, `sell_${item.id}`)
-      ]);
-    } else {
-      buttons[buttons.length - 1].push(
-        Markup.button.callback(`🎁 ${item.item_name}`, `withdraw_${item.id}`),
-        Markup.button.callback(`💰 Продать`, `sell_${item.id}`)
-      );
-    }
-  });
-  
-  await ctx.reply(inventoryText, { 
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard(buttons)
-  });
-});
-
-// Главное меню
-bot.hears('⬅️ Главное меню', (ctx) => {
-  ctx.reply('Возвращаемся в главное меню...');
-  ctx.start();
-});
-
-// Правила
-bot.hears('ℹ️ Правила', (ctx) => {
-  const rulesText = `📖 *Правила Ghost FluX Casino*
-
-🎰 *Общие положения:*
-• Игровая валюта - звёзды
-• Минимальное пополнение - 50 звёзд
-• Вывод подарков в течение 3 часов
-
-🎁 *Кейсы:*
-• Gift Box - 25 звёзд
-• Ghost Roulette - 50 звёзд
-• Бонусный кейс - бесплатно раз в 24ч
-
-⚠️ *Важно:*
-• Администратор не несет ответственности за игровую валюту
-• Игрок может как выиграть, так и проиграть звёзды
-• Запрещено создание мультиаккаунтов`;
-
-  ctx.reply(rulesText, { parse_mode: 'Markdown' });
-});
-
-// Поддержка
-bot.hears('📞 Поддержка', (ctx) => {
-  ctx.reply('📞 *Техническая поддержка*\n\nПо вопросам пополнения баланса и вывода подарков:\n@KXKXKXKXKXKXKXKXKXKXK', {
-    parse_mode: 'Markdown'
-  });
 });
 
 // Функции работы с базой данных
