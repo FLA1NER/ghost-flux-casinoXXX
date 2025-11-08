@@ -124,4 +124,54 @@ export class GameLogic {
       inventoryId: inventoryItem[0].id 
     };
   }
+    // Бонусный кейс
+  static async openBonusCase(userId) {
+    // Проверяем подписку на канал (пока заглушка - всегда true)
+    const isSubscribed = await DatabaseOperations.checkChannelSubscription(userId);
+    
+    if (!isSubscribed) {
+      throw new Error('Для получения бонуса нужно быть подписанным на канал @Ghost_FluX');
+    }
+
+    // Проверяем когда последний раз получал бонус
+    const { data: user } = await DatabaseOperations.getUser(userId);
+    const now = new Date();
+    const lastBonus = user.last_bonus_claim ? new Date(user.last_bonus_claim) : null;
+
+    if (lastBonus && (now - lastBonus) < 24 * 60 * 60 * 1000) {
+      const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - lastBonus)) / (60 * 60 * 1000));
+      throw new Error(`Следующий бонусный кейс через ${hoursLeft} часов`);
+    }
+
+    // Генерируем случайное количество звезд
+    const minStars = parseInt(process.env.BONUS_MIN_STARS);
+    const maxStars = parseInt(process.env.BONUS_MAX_STARS);
+    const starsWon = Math.floor(Math.random() * (maxStars - minStars + 1)) + minStars;
+
+    // Обновляем баланс
+    const newBalance = (user.balance || 0) + starsWon;
+    await DatabaseOperations.updateBalance(userId, newBalance);
+
+    // Обновляем время последнего бонуса
+    await supabase
+      .from('users')
+      .update({ last_bonus_claim: now.toISOString() })
+      .eq('telegram_id', userId);
+
+    // Записываем транзакцию
+    await DatabaseOperations.createTransaction(
+      userId, 
+      'bonus', 
+      starsWon, 
+      { 
+        bonus_type: 'daily',
+        stars_won: starsWon
+      }
+    );
+
+    return { 
+      starsWon, 
+      newBalance 
+    };
+  }
 }
