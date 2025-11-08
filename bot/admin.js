@@ -1,32 +1,44 @@
 import { supabase } from '../config/database.js';
 
 export class AdminPanel {
-  // Пополнение баланса пользователя
+  // Пополнение баланса пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
   static async addBalanceToUser(telegramId, amount, adminId) {
     if (adminId !== parseInt(process.env.ADMIN_USER_ID)) {
       throw new Error('Недостаточно прав');
     }
 
+    console.log(`Пополнение баланса для ${telegramId} на ${amount} звезд`);
+
     // Находим пользователя
-    const { data: user, error } = await supabase
+    const { data: user, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('telegram_id', telegramId)
       .single();
 
-    if (error) throw new Error('Пользователь не найден');
+    if (userError) {
+      console.error('Ошибка поиска пользователя:', userError);
+      throw new Error('Пользователь не найден');
+    }
+
+    if (!user) {
+      throw new Error('Пользователь не найден в базе');
+    }
 
     // Обновляем баланс
-    const newBalance = user.balance + amount;
+    const newBalance = (user.balance || 0) + amount;
     const { error: updateError } = await supabase
       .from('users')
       .update({ balance: newBalance })
       .eq('telegram_id', telegramId);
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      console.error('Ошибка обновления баланса:', updateError);
+      throw updateError;
+    }
 
     // Записываем транзакцию
-    await supabase
+    const { error: transactionError } = await supabase
       .from('transactions')
       .insert({
         user_id: telegramId,
@@ -35,25 +47,40 @@ export class AdminPanel {
         details: { admin_id: adminId, method: 'manual' }
       });
 
-    return { success: true, newBalance, username: user.username };
+    if (transactionError) {
+      console.error('Ошибка записи транзакции:', transactionError);
+    }
+
+    console.log(`Баланс успешно пополнен. Новый баланс: ${newBalance}`);
+
+    return { 
+      success: true, 
+      newBalance, 
+      username: user.username || user.first_name 
+    };
   }
 
   // Получение статистики
   static async getStats() {
-    const { count: totalUsers } = await supabase
+    const { count: totalUsers, error: usersError } = await supabase
       .from('users')
       .select('*', { count: 'exact' });
 
-    const { data: totalBalance } = await supabase
+    const { data: users, error: balanceError } = await supabase
       .from('users')
       .select('balance');
 
-    const totalStars = totalBalance.reduce((sum, user) => sum + user.balance, 0);
+    if (usersError || balanceError) {
+      throw new Error('Ошибка получения статистики');
+    }
+
+    const totalStars = users.reduce((sum, user) => sum + (user.balance || 0), 0);
+    const averageBalance = totalUsers > 0 ? totalStars / totalUsers : 0;
 
     return {
-      totalUsers,
+      totalUsers: totalUsers || 0,
       totalStars,
-      averageBalance: totalStars / totalUsers
+      averageBalance: Math.round(averageBalance)
     };
   }
 
@@ -70,7 +97,7 @@ export class AdminPanel {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return requests;
+    return requests || [];
   }
 
   // Подтверждение вывода
