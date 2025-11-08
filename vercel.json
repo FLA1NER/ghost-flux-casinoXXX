@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server/api.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "mini-app/index.html",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/server/api.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/mini-app/index.html"
+    }
+  ]
+}
