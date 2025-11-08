@@ -1,4 +1,4 @@
-import { supabase } from '../config/database.js';
+import { DatabaseOperations } from '../database/operations.js';
 
 export class GameLogic {
   // Шансы для кейса Gift Box
@@ -45,11 +45,8 @@ export class GameLogic {
     const casePrice = parseInt(process.env.CASE_PRICE);
     
     // Проверяем баланс
-    const { data: user } = await supabase
-      .from('users')
-      .select('balance')
-      .eq('telegram_id', userId)
-      .single();
+    const { data: user, error: userError } = await DatabaseOperations.getUser(userId);
+    if (userError) throw new Error('Ошибка получения данных пользователя');
 
     if (user.balance < casePrice) {
       throw new Error('Недостаточно звёзд');
@@ -57,42 +54,33 @@ export class GameLogic {
 
     // Списываем звёзды
     const newBalance = user.balance - casePrice;
-    await supabase
-      .from('users')
-      .update({ balance: newBalance })
-      .eq('telegram_id', userId);
+    const { error: updateError } = await DatabaseOperations.updateBalance(userId, newBalance);
+    if (updateError) throw updateError;
 
     // Генерируем предмет
     const wonItem = this.getRandomItem(this.caseItems);
 
     // Добавляем в инвентарь
-    const { data: inventoryItem } = await supabase
-      .from('inventory')
-      .insert({
-        user_id: userId,
-        item_type: wonItem.type,
-        item_name: wonItem.name,
-        item_price: wonItem.price,
-        item_emoji: wonItem.emoji
-      })
-      .select()
-      .single();
+    const { data: inventoryItem, error: inventoryError } = await DatabaseOperations.addToInventory(userId, wonItem);
+    if (inventoryError) throw inventoryError;
 
     // Записываем транзакцию
-    await supabase
-      .from('transactions')
-      .insert({
-        user_id: userId,
-        type: 'case_open',
-        amount: -casePrice,
-        details: { 
-          case_type: 'gift_box',
-          won_item: wonItem,
-          inventory_id: inventoryItem.id 
-        }
-      });
+    await DatabaseOperations.createTransaction(
+      userId, 
+      'case_open', 
+      -casePrice, 
+      { 
+        case_type: 'gift_box',
+        won_item: wonItem,
+        inventory_id: inventoryItem[0].id 
+      }
+    );
 
-    return { wonItem, newBalance, inventoryId: inventoryItem.id };
+    return { 
+      wonItem, 
+      newBalance, 
+      inventoryId: inventoryItem[0].id 
+    };
   }
 
   // Вращение рулетки
@@ -100,11 +88,8 @@ export class GameLogic {
     const roulettePrice = parseInt(process.env.ROULETTE_PRICE);
     
     // Проверяем баланс
-    const { data: user } = await supabase
-      .from('users')
-      .select('balance')
-      .eq('telegram_id', userId)
-      .single();
+    const { data: user, error: userError } = await DatabaseOperations.getUser(userId);
+    if (userError) throw new Error('Ошибка получения данных пользователя');
 
     if (user.balance < roulettePrice) {
       throw new Error('Недостаточно звёзд');
@@ -112,40 +97,31 @@ export class GameLogic {
 
     // Списываем звёзды
     const newBalance = user.balance - roulettePrice;
-    await supabase
-      .from('users')
-      .update({ balance: newBalance })
-      .eq('telegram_id', userId);
+    const { error: updateError } = await DatabaseOperations.updateBalance(userId, newBalance);
+    if (updateError) throw updateError;
 
     // Генерируем предмет
     const wonItem = this.getRandomItem(this.rouletteItems);
 
     // Добавляем в инвентарь
-    const { data: inventoryItem } = await supabase
-      .from('inventory')
-      .insert({
-        user_id: userId,
-        item_type: wonItem.type,
-        item_name: wonItem.name,
-        item_price: wonItem.price,
-        item_emoji: wonItem.emoji
-      })
-      .select()
-      .single();
+    const { data: inventoryItem, error: inventoryError } = await DatabaseOperations.addToInventory(userId, wonItem);
+    if (inventoryError) throw inventoryError;
 
     // Записываем транзакцию
-    await supabase
-      .from('transactions')
-      .insert({
-        user_id: userId,
-        type: 'roulette_spin',
-        amount: -roulettePrice,
-        details: { 
-          won_item: wonItem,
-          inventory_id: inventoryItem.id 
-        }
-      });
+    await DatabaseOperations.createTransaction(
+      userId, 
+      'roulette_spin', 
+      -roulettePrice, 
+      { 
+        won_item: wonItem,
+        inventory_id: inventoryItem[0].id 
+      }
+    );
 
-    return { wonItem, newBalance, inventoryId: inventoryItem.id };
+    return { 
+      wonItem, 
+      newBalance, 
+      inventoryId: inventoryItem[0].id 
+    };
   }
 }
