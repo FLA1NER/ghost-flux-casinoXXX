@@ -107,6 +107,31 @@ app.post('/api/spin-roulette', async (req, res) => {
   }
 });
 
+// Бонусный кейс
+app.post('/api/open-bonus', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const result = await GameLogic.openBonusCase(parseInt(userId));
+    
+    res.json({
+      success: true,
+      starsWon: result.starsWon,
+      newBalance: result.newBalance
+    });
+  } catch (error) {
+    console.error('Error opening bonus case:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // Получение инвентаря
 app.get('/api/inventory/:telegramId', async (req, res) => {
   try {
@@ -182,7 +207,7 @@ app.post('/api/sell-item', async (req, res) => {
       .eq('telegram_id', parseInt(userId))
       .single();
 
-    const newBalance = user.balance + sellPrice;
+    const newBalance = (user.balance || 0) + sellPrice;
 
     await supabase
       .from('users')
