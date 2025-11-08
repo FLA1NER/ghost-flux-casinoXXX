@@ -1,4 +1,5 @@
 import { DatabaseOperations } from '../database/operations.js';
+import { supabase } from '../config/database.js';
 
 export class GameLogic {
   // Шансы для кейса Gift Box
@@ -124,7 +125,8 @@ export class GameLogic {
       inventoryId: inventoryItem[0].id 
     };
   }
-    // Бонусный кейс
+
+  // Бонусный кейс
   static async openBonusCase(userId) {
     // Проверяем подписку на канал (пока заглушка - всегда true)
     const isSubscribed = await DatabaseOperations.checkChannelSubscription(userId);
