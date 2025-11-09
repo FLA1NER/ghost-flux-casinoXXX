@@ -1,81 +1,31 @@
 import { Telegraf, Markup } from 'telegraf';
-import { supabase } from '../config/database.js';
-import { AdminPanel } from './admin.js';
-import { DatabaseOperations } from '../database/operations.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, {
-  telegram: {
-    agent: null,
-    attachmentAgent: null,
-    apiRoot: 'https://api.telegram.org',
-    webhookReply: true,
-    testEnv: false
-  },
-  handlerTimeout: 30000,
-});
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-bot.telegram.options.timeout = 60000;
-
-// Обработчик ошибок бота
+// Обработчик ошибок
 bot.catch((err, ctx) => {
-  console.error('❌ Ошибка бота:', err.message);
-  try {
-    ctx.reply('⚠️ Произошла временная ошибка. Попробуйте позже.');
-  } catch (e) {
-    console.error('Не удалось отправить сообщение об ошибке:', e);
-  }
+  console.error('❌ Ошибка бота:', err);
 });
 
-// Функция для безопасного выполнения операций с базой
-async function safeDbOperation(operation, fallback = null, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      console.error(`❌ Ошибка базы данных (попытка ${attempt}/${maxRetries}):`, error.message);
-      if (attempt === maxRetries) {
-        return fallback;
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-    }
-  }
-}
-
-// Функция для безопасной отправки сообщений
-async function safeReply(ctx, text, extra = {}) {
-  try {
-    await ctx.reply(text, extra);
-    return true;
-  } catch (error) {
-    console.error('❌ Ошибка отправки сообщения:', error.message);
-    return false;
-  }
-}
-
-// Главное меню с Reply-клавиатурой
+// Главное меню
 bot.start(async (ctx) => {
   try {
     const userId = ctx.from.id;
     const username = ctx.from.username || ctx.from.first_name;
     
-    await safeDbOperation(() => registerUser(userId, username, ctx.from.first_name));
-    
-    const user = await safeDbOperation(() => getUser(userId), { balance: 0 });
-    
     const menuText = `🎰 *Добро пожаловать в Ghost FluX Casino!* 👻
 
-✨ *Ваш баланс:* ${user.balance} звёзд
-🎁 *Открывайте кейсы и выигрывайте подарки!*
+✨ *Открывайте кейсы и выигрывайте подарки!*
 
 ⚡️ *Режимы игры:*
 • 🎁 Кейс Gift Box - 25 звёзд
 • 🎡 Рулетка Ghost Roulette - 50 звёзд  
 • 🎯 Бонусный кейс - бесплатно раз в 24ч
 
-👇 *Выберите действие:*`;
+👇 *Нажмите кнопку ниже чтобы начать играть!*`;
 
     const keyboard = Markup.keyboard([
       ['🎰 Открыть Казино', '⭐️ Мой баланс'],
@@ -83,71 +33,64 @@ bot.start(async (ctx) => {
       ['ℹ️ Правила', '📞 Поддержка']
     ]).resize().oneTime();
 
-    await safeReply(ctx, menuText, { 
+    await ctx.reply(menuText, { 
       parse_mode: 'Markdown', 
       ...keyboard 
     });
   } catch (error) {
-    console.error('Ошибка в start:', error.message);
-    await safeReply(ctx, '❌ Произошла ошибка. Попробуйте снова.');
+    console.error('Ошибка в start:', error);
+    ctx.reply('❌ Произошла ошибка. Попробуйте снова.');
   }
 });
 
-// АДМИН ПАНЕЛЬ
-bot.command('admin', async (ctx) => {
-  try {
-    if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) {
-      return await safeReply(ctx, '⛔️ У вас нет доступа к админ панели');
-    }
-    
-    const adminKeyboard = Markup.keyboard([
-      ['👤 Пополнить баланс', '📊 Статистика'],
-      ['📨 Заявки на вывод', '⬅️ Главное меню']
-    ]).resize().oneTime();
-    
-    await safeReply(ctx, '⚙️ *Админ панель Ghost FluX*', { 
-      parse_mode: 'Markdown',
-      ...adminKeyboard 
-    });
-  } catch (error) {
-    console.error('Ошибка в admin:', error.message);
-    await safeReply(ctx, '❌ Ошибка доступа к админ панели.');
-  }
-});
-
-// Обработка кнопок Reply-клавиатуры
+// Открытие Mini App
 bot.hears('🎰 Открыть Казино', async (ctx) => {
   try {
     const miniAppUrl = `https://ghost-flux-casino-xxx.vercel.app?startapp=${ctx.from.id}`;
-    await safeReply(ctx, '🎮 *Открываем казино...*', {
+    
+    await ctx.reply('🎮 *Открываем казино...*', {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         Markup.button.webApp('🚀 Играть сейчас', miniAppUrl)
       ])
     });
   } catch (error) {
-    console.error('Ошибка в Открыть Казино:', error.message);
-    await safeReply(ctx, '❌ Ошибка открытия казино.');
+    console.error('Ошибка открытия казино:', error);
+    ctx.reply('❌ Ошибка открытия казино.');
   }
 });
 
+// Баланс
 bot.hears('⭐️ Мой баланс', async (ctx) => {
   try {
-    const user = await safeDbOperation(() => getUser(ctx.from.id), { balance: 0 });
-    await safeReply(ctx, `✨ *Ваш баланс:* ${user.balance} звёзд\n\n💎 *Цены пополнения:*\n50 звёзд - 85 руб\n100 звёзд - 169 руб\n200 звёзд - 339 руб`, { 
+    const userId = ctx.from.id;
+    
+    // Получаем баланс через API
+    const response = await fetch(`https://ghost-flux-casinoxxx.onrender.com/api/user/${userId}`);
+    const userData = await response.json();
+    
+    const balance = userData.balance || 0;
+    
+    await ctx.reply(`✨ *Ваш баланс:* ${balance} звёзд\n\n💎 *Цены пополнения:*\n50 звёзд - 85 руб\n100 звёзд - 169 руб\n200 звёзд - 339 руб\n\nДля пополнения напишите: @KXKXKXKXKXKXKXKXKXKXK`, { 
       parse_mode: 'Markdown' 
     });
   } catch (error) {
-    console.error('Ошибка в Мой баланс:', error.message);
-    await safeReply(ctx, '❌ Ошибка получения баланса.');
+    console.error('Ошибка получения баланса:', error);
+    ctx.reply('❌ Ошибка получения баланса.');
   }
 });
 
+// Инвентарь
 bot.hears('🎁 Мой инвентарь', async (ctx) => {
   try {
-    const inventory = await safeDbOperation(() => getUserInventory(ctx.from.id), []);
-    if (inventory.length === 0) {
-      return await safeReply(ctx, '📦 Ваш инвентарь пуст. Откройте кейсы чтобы получить подарки!');
+    const userId = ctx.from.id;
+    
+    // Получаем инвентарь через API
+    const response = await fetch(`https://ghost-flux-casinoxxx.onrender.com/api/inventory/${userId}`);
+    const inventory = await response.json();
+    
+    if (!inventory || inventory.length === 0) {
+      return ctx.reply('📦 Ваш инвентарь пуст. Откройте кейсы чтобы получить подарки!');
     }
     
     let inventoryText = '🎁 *Ваш инвентарь:*\n\n';
@@ -155,16 +98,17 @@ bot.hears('🎁 Мой инвентарь', async (ctx) => {
       inventoryText += `${item.item_emoji} *${item.item_name}* - ${item.item_price} звёзд\n`;
     });
     
-    await safeReply(ctx, inventoryText, { parse_mode: 'Markdown' });
+    await ctx.reply(inventoryText, { parse_mode: 'Markdown' });
   } catch (error) {
-    console.error('Ошибка в Мой инвентарь:', error.message);
-    await safeReply(ctx, '❌ Ошибка получения инвентаря.');
+    console.error('Ошибка получения инвентаря:', error);
+    ctx.reply('❌ Ошибка получения инвентаря.');
   }
 });
 
+// Пополнение баланса
 bot.hears('📱 Пополнить баланс', async (ctx) => {
   try {
-    await safeReply(ctx, `💎 *Пополнение баланса*
+    await ctx.reply(`💎 *Пополнение баланса*
 
 Для пополнения баланса напишите:
 @KXKXKXKXKXKXKXKXKXKXK
@@ -178,11 +122,12 @@ bot.hears('📱 Пополнить баланс', async (ctx) => {
       parse_mode: 'Markdown'
     });
   } catch (error) {
-    console.error('Ошибка в Пополнить баланс:', error.message);
-    await safeReply(ctx, '❌ Ошибка отображения информации.');
+    console.error('Ошибка пополнения баланса:', error);
+    ctx.reply('❌ Ошибка отображения информации.');
   }
 });
 
+// Правила
 bot.hears('ℹ️ Правила', async (ctx) => {
   try {
     const rulesText = `📖 *Правила Ghost FluX Casino*
@@ -202,152 +147,55 @@ bot.hears('ℹ️ Правила', async (ctx) => {
 • Игрок может как выиграть, так и проиграть звёзды
 • Запрещено создание мультиаккаунтов`;
 
-    await safeReply(ctx, rulesText, { parse_mode: 'Markdown' });
+    await ctx.reply(rulesText, { parse_mode: 'Markdown' });
   } catch (error) {
-    console.error('Ошибка в Правила:', error.message);
-    await safeReply(ctx, '❌ Ошибка отображения правил.');
+    console.error('Ошибка правил:', error);
+    ctx.reply('❌ Ошибка отображения правил.');
   }
 });
 
+// Поддержка
 bot.hears('📞 Поддержка', async (ctx) => {
   try {
-    await safeReply(ctx, '📞 *Техническая поддержка*\n\nПо вопросам пополнения баланса и вывода подарков:\n@KXKXKXKXKXKXKXKXKXKXK', {
+    await ctx.reply('📞 *Техническая поддержка*\n\nПо вопросам пополнения баланса и вывода подарков:\n@KXKXKXKXKXKXKXKXKXKXK', {
       parse_mode: 'Markdown'
     });
   } catch (error) {
-    console.error('Ошибка в Поддержка:', error.message);
-    await safeReply(ctx, '❌ Ошибка отображения поддержки.');
+    console.error('Ошибка поддержки:', error);
+    ctx.reply('❌ Ошибка отображения поддержки.');
   }
 });
 
-// Админ функции
-bot.hears('👤 Пополнить баланс', async (ctx) => {
+// Админ команда
+bot.command('admin', async (ctx) => {
   try {
     if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) {
-      return await safeReply(ctx, '⛔️ Доступ запрещен');
+      return ctx.reply('⛔️ У вас нет доступа к админ панели');
     }
     
-    await safeReply(ctx, 'Введите данные в формате:\n`@username количество_звезд`\nили\n`id количество_звезд`', {
-      parse_mode: 'Markdown'
+    const adminUrl = 'https://ghost-flux-casinoxxx.onrender.com/admin';
+    
+    await ctx.reply('⚙️ *Админ панель Ghost FluX*', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        Markup.button.url('📊 Открыть админ панель', adminUrl)
+      ])
     });
   } catch (error) {
-    console.error('Ошибка в админ Пополнить баланс:', error.message);
-    await safeReply(ctx, '❌ Ошибка админ функции.');
+    console.error('Ошибка админ панели:', error);
+    ctx.reply('❌ Ошибка доступа к админ панели.');
   }
 });
 
-bot.hears('📊 Статистика', async (ctx) => {
-  try {
-    if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
-    
-    const stats = await safeDbOperation(() => AdminPanel.getStats(), { 
-      totalUsers: 0, 
-      totalStars: 0, 
-      averageBalance: 0 
-    });
-    
-    const statsText = `📊 *Статистика Ghost FluX*
-
-👥 Всего пользователей: ${stats.totalUsers}
-⭐️ Всего звёзд в системе: ${stats.totalStars}
-💰 Средний баланс: ${Math.round(stats.averageBalance)} звёзд`;
-
-    await safeReply(ctx, statsText, { parse_mode: 'Markdown' });
-  } catch (error) {
-    console.error('Ошибка в Статистика:', error.message);
-    await safeReply(ctx, '❌ Ошибка получения статистики.');
-  }
+// Запускаем бота
+bot.launch().then(() => {
+  console.log('✅ Ghost FluX Bot запущен!');
+}).catch(error => {
+  console.error('❌ Ошибка запуска бота:', error);
 });
 
-bot.hears('⬅️ Главное меню', async (ctx) => {
-  try {
-    await safeReply(ctx, 'Возвращаемся в главное меню...', 
-      Markup.removeKeyboard()
-    );
-    // Вызываем start команду через 1 секунду
-    setTimeout(() => {
-      ctx.start();
-    }, 1000);
-  } catch (error) {
-    console.error('Ошибка в Главное меню:', error.message);
-    await safeReply(ctx, '❌ Ошибка возврата в меню.');
-  }
-});
+// Graceful shutdown
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-// Обработка пополнения баланса
-bot.on('text', async (ctx) => {
-  try {
-    if (ctx.from.id !== parseInt(process.env.ADMIN_USER_ID)) return;
-    
-    const text = ctx.message.text;
-    if ((text.startsWith('@') || !isNaN(parseInt(text.split(' ')[0]))) && text.includes(' ')) {
-      const [identifier, amountStr] = text.split(' ');
-      const amount = parseInt(amountStr);
-      
-      if (!amount || amount <= 0) {
-        return await safeReply(ctx, '❌ Неверная сумма');
-      }
-      
-      let telegramId;
-      
-      if (identifier.startsWith('@')) {
-        // Поиск по username
-        const { data: user } = await safeDbOperation(() => 
-          supabase
-            .from('users')
-            .select('telegram_id')
-            .eq('username', identifier.slice(1))
-            .single()
-        );
-          
-        if (!user) throw new Error('Пользователь не найден');
-        telegramId = user.telegram_id;
-      } else {
-        // Поиск по ID
-        telegramId = parseInt(identifier);
-      }
-      
-      const result = await AdminPanel.addBalanceToUser(telegramId, amount, ctx.from.id);
-      await safeReply(ctx, `✅ Баланс пополнен!\nПользователь: ${result.username}\nДобавлено: ${amount} звёзд\nНовый баланс: ${result.newBalance} звёзд`);
-      
-    }
-  } catch (error) {
-    console.error('Ошибка в обработке пополнения:', error.message);
-    await safeReply(ctx, `❌ Ошибка: ${error.message}`);
-  }
-});
-
-// Функции работы с базой данных
-async function registerUser(telegramId, username, firstName) {
-  const { data, error } = await DatabaseOperations.createUser(telegramId, username, firstName);
-  return { data, error };
-}
-
-async function getUser(telegramId) {
-  const { data, error } = await DatabaseOperations.getUser(telegramId);
-  return data || { balance: 0, username: 'user', first_name: 'User' };
-}
-
-async function getUserInventory(telegramId) {
-  const { data, error } = await DatabaseOperations.getUserInventory(telegramId);
-  return data || [];
-}
-
-// Экспортируем бота
 export { bot };
-
-// Функция для запуска бота (для server.js)
-export async function startBot() {
-  try {
-    await bot.launch();
-    console.log('✅ Bot started successfully!');
-  } catch (error) {
-    console.error('❌ Bot start failed:', error.message);
-    throw error;
-  }
-}
-
-// Если файл запущен напрямую
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startBot();
-}
