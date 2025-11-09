@@ -19,17 +19,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Webhook endpoint for Telegram
-app.post(`/webhook/${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
-  bot.handleUpdate(req.body, res);
-});
-
 // Temporary admin API for balance top-up
 app.post('/api/admin/add-balance', async (req, res) => {
   try {
     const { telegramId, amount, adminKey } = req.body;
     
-    // Простая проверка админа
     if (adminKey !== process.env.ADMIN_USER_ID.toString()) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -67,24 +61,63 @@ app.get('/admin', (req, res) => {
           <button type="submit">Add Balance</button>
         </form>
         <p><strong>Admin Key:</strong> ${process.env.ADMIN_USER_ID}</p>
+        <p><strong>How to use:</strong></p>
+        <ol>
+          <li>Get user's Telegram ID using @userinfobot</li>
+          <li>Enter the amount of stars to add</li>
+          <li>Use admin key: ${process.env.ADMIN_USER_ID}</li>
+          <li>Click "Add Balance"</li>
+        </ol>
       </body>
     </html>
   `);
 });
 
-// Set webhook on startup
-app.listen(PORT, '0.0.0.0', async () => {
+// Запускаем сервер
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  try {
-    // Устанавливаем вебхук
-    const webhookUrl = `https://${process.env.RENDER_EXTERNAL_URL || 'ghost-flux-casinoxxx.onrender.com'}/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
-    await bot.telegram.setWebhook(webhookUrl);
-    console.log('✅ Webhook set successfully:', webhookUrl);
-    console.log('🤖 Bot is ready in webhook mode!');
-  } catch (error) {
-    console.error('❌ Webhook setup failed:', error.message);
-  }
+  // Запускаем бота в polling режиме с ретраями
+  startBotWithRetries();
 });
+
+// Функция запуска бота с ретраями
+async function startBotWithRetries() {
+  let retryCount = 0;
+  const maxRetries = 10;
+  
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`🤖 Attempting to start bot... (attempt ${retryCount + 1}/${maxRetries})`);
+      
+      // Сначала сбрасываем вебхук
+      await bot.telegram.deleteWebhook();
+      console.log('✅ Webhook reset successfully');
+      
+      // Ждем 2 секунды
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Запускаем бота в polling режиме
+      await bot.launch();
+      console.log('✅ Bot started successfully in polling mode!');
+      console.log('🎰 Ghost FluX Casino is now LIVE!');
+      break;
+      
+    } catch (error) {
+      retryCount++;
+      console.error(`❌ Bot start failed (attempt ${retryCount}/${maxRetries}):`, error.message);
+      
+      if (retryCount >= maxRetries) {
+        console.error('🚨 Failed to start bot after all attempts');
+        console.log('💡 Temporary solution: Use the admin panel at /admin to manage balances');
+        break;
+      }
+      
+      const delay = Math.min(2000 * retryCount, 30000);
+      console.log(`⏳ Retrying in ${delay/1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
 
 export default app;
