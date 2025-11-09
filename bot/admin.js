@@ -2,7 +2,7 @@ import { supabase } from '../config/database.js';
 import { DatabaseOperations } from '../database/operations.js';
 
 export class AdminPanel {
-  // Пополнение баланса пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ БЕЗ updated_at)
+  // Пополнение баланса пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
   static async addBalanceToUser(telegramId, amount, adminId) {
     try {
       if (adminId !== parseInt(process.env.ADMIN_USER_ID)) {
@@ -29,7 +29,7 @@ export class AdminPanel {
 
       console.log(`📊 Найден пользователь:`, user);
 
-      // Обновляем баланс (БЕЗ updated_at)
+      // Обновляем баланс
       const newBalance = (user.balance || 0) + parseInt(amount);
       console.log(`💰 Новый баланс: ${newBalance}`);
 
@@ -37,7 +37,6 @@ export class AdminPanel {
         .from('users')
         .update({ 
           balance: newBalance
-          // Убрали updated_at так как его нет в таблице
         })
         .eq('telegram_id', telegramId);
 
@@ -46,11 +45,11 @@ export class AdminPanel {
         throw new Error('Ошибка обновления баланса: ' + updateError.message);
       }
 
-      // Записываем транзакцию
+      // Записываем транзакцию (ИСПРАВЛЕНО - используем telegram_id)
       const { error: transactionError } = await supabase
         .from('transactions')
         .insert({
-          user_id: telegramId,
+          user_id: telegramId, // Используем telegram_id вместо id
           type: 'deposit',
           amount: parseInt(amount),
           details: { 
@@ -62,8 +61,8 @@ export class AdminPanel {
         });
 
       if (transactionError) {
-        console.error('⚠️ Ошибка записи транзакции (но баланс пополнен):', transactionError);
-        // Не бросаем ошибку, так как баланс уже пополнен
+        console.error('⚠️ Ошибка записи транзакции:', transactionError);
+        // Продолжаем, так как баланс уже пополнен
       }
 
       console.log(`✅ Баланс успешно пополнен. Новый баланс: ${newBalance}`);
@@ -117,8 +116,8 @@ export class AdminPanel {
         .from('withdrawal_requests')
         .select(`
           *,
-          users (username, first_name),
-          inventory (item_name, item_price, item_emoji)
+          users!inner(username, first_name),
+          inventory!inner(item_name, item_price, item_emoji)
         `)
         .eq('status', 'pending')
         .order('created_at', { ascending: true });
@@ -149,21 +148,6 @@ export class AdminPanel {
         .eq('id', requestId);
 
       if (updateError) throw updateError;
-
-      // Получаем данные заявки
-      const { data: request } = await supabase
-        .from('withdrawal_requests')
-        .select('inventory_id')
-        .eq('id', requestId)
-        .single();
-
-      // Обновляем статус предмета в инвентаре
-      const { error: inventoryError } = await supabase
-        .from('inventory')
-        .update({ status: 'withdrawn' })
-        .eq('id', request.inventory_id);
-
-      if (inventoryError) throw inventoryError;
 
       return { success: true };
     } catch (error) {
