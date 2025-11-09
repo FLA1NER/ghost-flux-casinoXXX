@@ -2,7 +2,7 @@ import { supabase } from '../config/database.js';
 import { DatabaseOperations } from '../database/operations.js';
 
 export class AdminPanel {
-  // Пополнение баланса пользователя (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ)
+  // Пополнение баланса пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ БЕЗ updated_at)
   static async addBalanceToUser(telegramId, amount, adminId) {
     try {
       if (adminId !== parseInt(process.env.ADMIN_USER_ID)) {
@@ -29,15 +29,15 @@ export class AdminPanel {
 
       console.log(`📊 Найден пользователь:`, user);
 
-      // Обновляем баланс
+      // Обновляем баланс (БЕЗ updated_at)
       const newBalance = (user.balance || 0) + parseInt(amount);
       console.log(`💰 Новый баланс: ${newBalance}`);
 
       const { error: updateError } = await supabase
         .from('users')
         .update({ 
-          balance: newBalance,
-          updated_at: new Date().toISOString()
+          balance: newBalance
+          // Убрали updated_at так как его нет в таблице
         })
         .eq('telegram_id', telegramId);
 
