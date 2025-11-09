@@ -1,5 +1,5 @@
 import express from 'express';
-import { startBot } from './bot/bot.js';
+import { bot, startBot } from './bot/bot.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -12,15 +12,22 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     service: 'Ghost FluX Bot',
+    botStatus: 'running',
     timestamp: new Date().toISOString()
   });
 });
 
-// Запускаем сервер
+// Запускаем сервер и бота
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  // Запускаем бота после старта сервера
-  startBot();
+  
+  // Запускаем бота
+  startBot().then(() => {
+    console.log('✅ Bot initialization completed');
+  }).catch(error => {
+    console.error('❌ Bot failed to start:', error);
+  });
 });
 
+// Экспортируем для тестирования
 export default app;
