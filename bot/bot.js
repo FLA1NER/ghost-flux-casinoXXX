@@ -336,9 +336,18 @@ async function getUserInventory(telegramId) {
 // Экспортируем бота
 export { bot };
 
-// Если файл запущен напрямую (для разработки)
+// Функция для запуска бота (для server.js)
+export async function startBot() {
+  try {
+    await bot.launch();
+    console.log('✅ Bot started successfully!');
+  } catch (error) {
+    console.error('❌ Bot start failed:', error.message);
+    throw error;
+  }
+}
+
+// Если файл запущен напрямую
 if (import.meta.url === `file://${process.argv[1]}`) {
-  bot.launch().then(() => {
-    console.log('🤖 Bot started in polling mode');
-  });
+  startBot();
 }
