@@ -1,6 +1,7 @@
 import express from 'express';
 import { bot } from './bot/bot.js';
 import { supabase } from './config/database.js';
+import cors from 'cors';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -8,23 +9,250 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+// ==================== API ДЛЯ MINI APP ====================
+
+// Получение данных пользователя
+app.get('/api/user/:telegramId', async (req, res) => {
+  try {
+    const telegramId = parseInt(req.params.telegramId);
+    
+    console.log(`🔍 Запрос данных пользователя: ${telegramId}`);
+    
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('telegram_id', telegramId)
+      .single();
+
+    if (error && error.code === 'PGRST116') {
+      // Пользователь не найден - создаем нового
+      const { data: newUser } = await supabase
+        .from('users')
+        .insert({
+          telegram_id: telegramId,
+          username: 'user_' + telegramId,
+          first_name: 'User',
+          balance: 0
+        })
+        .select()
+        .single();
+      
+      console.log(`✅ Создан новый пользователь: ${telegramId}`);
+      return res.json(newUser);
+    }
+
+    if (error) throw error;
+    
+    console.log(`✅ Данные пользователя получены: ${telegramId}, баланс: ${user?.balance}`);
+    res.json(user || { balance: 0 });
+    
+  } catch (error) {
+    console.error('❌ Ошибка получения пользователя:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Главная админ-страница
+// Открытие кейса
+app.post('/api/open-case', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const telegramId = parseInt(userId);
+    const casePrice = 25;
+
+    console.log(`🎁 Открытие кейса для: ${telegramId}`);
+
+    // Получаем пользователя
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('telegram_id', telegramId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(400).json({ error: 'Пользователь не найден' });
+    }
+
+    // Проверяем баланс
+    if (user.balance < casePrice) {
+      return res.status(400).json({ error: 'Недостаточно звёзд' });
+    }
+
+    // Генерируем выигрыш
+    const items = [
+      { emoji: '🧸', name: 'Мишка', price: 15, chance: 35 },
+      { emoji: '💝', name: 'Сердечко', price: 15, chance: 35 },
+      { emoji: '🌹', name: 'Роза', price: 25, chance: 7.5 },
+      { emoji: '🎁', name: 'Подарок', price: 25, chance: 7.5 },
+      { emoji: '🚀', name: 'Ракета', price: 50, chance: 5 },
+      { emoji: '🍾', name: 'Шампанское', price: 50, chance: 5 },
+      { emoji: '🏆', name: 'Кубок', price: 100, chance: 2.5 },
+      { emoji: '💍', name: 'Кольцо', price: 100, chance: 2.5 }
+    ];
+
+    const random = Math.random() * 100;
+    let currentChance = 0;
+    let wonItem = items[0];
+
+    for (const item of items) {
+      currentChance += item.chance;
+      if (random <= currentChance) {
+        wonItem = item;
+        break;
+      }
+    }
+
+    // Обновляем баланс
+    const newBalance = user.balance - casePrice;
+    await supabase
+      .from('users')
+      .update({ balance: newBalance })
+      .eq('telegram_id', telegramId);
+
+    // Добавляем предмет в инвентарь
+    const { data: inventoryItem } = await supabase
+      .from('inventory')
+      .insert({
+        user_id: telegramId,
+        item_type: wonItem.name.toLowerCase(),
+        item_name: wonItem.name,
+        item_price: wonItem.price,
+        item_emoji: wonItem.emoji
+      })
+      .select()
+      .single();
+
+    // Записываем транзакцию
+    await supabase
+      .from('transactions')
+      .insert({
+        user_id: telegramId,
+        type: 'case_open',
+        amount: -casePrice,
+        details: { 
+          case_type: 'gift_box',
+          won_item: wonItem,
+          inventory_id: inventoryItem.id 
+        }
+      });
+
+    console.log(`✅ Кейс открыт: ${telegramId} выиграл ${wonItem.name}`);
+
+    res.json({
+      success: true,
+      wonItem: wonItem,
+      newBalance: newBalance
+    });
+
+  } catch (error) {
+    console.error('❌ Ошибка открытия кейса:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Бонусный кейс
+app.post('/api/open-bonus', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const telegramId = parseInt(userId);
+
+    console.log(`🎯 Бонусный кейс для: ${telegramId}`);
+
+    // Получаем пользователя
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('telegram_id', telegramId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(400).json({ error: 'Пользователь не найден' });
+    }
+
+    // Проверяем время последнего бонуса
+    const now = new Date();
+    const lastBonus = user.last_bonus_claim ? new Date(user.last_bonus_claim) : null;
+
+    if (lastBonus && (now - lastBonus) < 24 * 60 * 60 * 1000) {
+      const hoursLeft = Math.ceil((24 * 60 * 60 * 1000 - (now - lastBonus)) / (60 * 60 * 1000));
+      return res.status(400).json({ error: `Следующий бонус через ${hoursLeft} часов` });
+    }
+
+    // Генерируем бонус (1-5 звезд)
+    const starsWon = Math.floor(Math.random() * 5) + 1;
+    const newBalance = user.balance + starsWon;
+
+    // Обновляем баланс и время бонуса
+    await supabase
+      .from('users')
+      .update({ 
+        balance: newBalance,
+        last_bonus_claim: now.toISOString()
+      })
+      .eq('telegram_id', telegramId);
+
+    // Записываем транзакцию
+    await supabase
+      .from('transactions')
+      .insert({
+        user_id: telegramId,
+        type: 'bonus',
+        amount: starsWon,
+        details: { 
+          bonus_type: 'daily',
+          stars_won: starsWon
+        }
+      });
+
+    console.log(`✅ Бонус получен: ${telegramId} +${starsWon} звезд`);
+
+    res.json({
+      success: true,
+      starsWon: starsWon,
+      newBalance: newBalance
+    });
+
+  } catch (error) {
+    console.error('❌ Ошибка бонусного кейса:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Получение инвентаря
+app.get('/api/inventory/:telegramId', async (req, res) => {
+  try {
+    const telegramId = parseInt(req.params.telegramId);
+
+    const { data: inventory, error } = await supabase
+      .from('inventory')
+      .select('*')
+      .eq('user_id', telegramId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(inventory || []);
+
+  } catch (error) {
+    console.error('❌ Ошибка получения инвентаря:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== АДМИН ПАНЕЛЬ ====================
+
 app.get('/admin', async (req, res) => {
   try {
-    // Получаем список пользователей
+    // Получаем пользователей
     const { data: users, error } = await supabase
       .from('users')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(100);
 
     if (error) throw error;
 
@@ -34,14 +262,14 @@ app.get('/admin', async (req, res) => {
         usersHtml += `
           <tr>
             <td>${user.telegram_id}</td>
-            <td>${user.username || 'N/A'}</td>
-            <td>${user.first_name || 'N/A'}</td>
-            <td>${user.balance} ⭐</td>
+            <td>${user.username || '—'}</td>
+            <td>${user.first_name || '—'}</td>
+            <td><strong>${user.balance} ⭐</strong></td>
             <td>
               <form action="/admin/add-balance" method="post" style="display: inline;">
                 <input type="hidden" name="telegramId" value="${user.telegram_id}">
-                <input type="number" name="amount" placeholder="Сумма" required style="width: 80px;">
-                <button type="submit">➕</button>
+                <input type="number" name="amount" placeholder="Сумма" required style="width: 80px; padding: 5px;">
+                <button type="submit" style="padding: 5px 10px; background: #00ff00; color: black; border: none; border-radius: 3px; cursor: pointer;">➕</button>
               </form>
             </td>
           </tr>
@@ -54,50 +282,24 @@ app.get('/admin', async (req, res) => {
       <html>
       <head>
         <title>Ghost FluX Admin</title>
+        <meta charset="UTF-8">
         <style>
-          body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a2e; color: white; }
+          body { font-family: Arial, sans-serif; margin: 20px; background: #0a0a0a; color: white; }
           .container { max-width: 1200px; margin: 0 auto; }
           .header { text-align: center; margin-bottom: 30px; }
-          .neon-text { 
-            color: #00ffff; 
-            text-shadow: 0 0 10px #00ffff;
-            font-size: 2.5em;
-          }
-          table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            overflow: hidden;
-          }
-          th, td { 
-            padding: 12px; 
-            text-align: left; 
-            border-bottom: 1px solid rgba(255,255,255,0.2);
-          }
-          th { 
-            background: rgba(0, 255, 255, 0.2);
-            color: #00ffff;
-          }
-          input, button { 
-            padding: 8px; 
-            border: none; 
-            border-radius: 5px; 
-          }
-          input { 
-            background: rgba(255,255,255,0.9); 
-            color: #000;
-          }
-          button { 
-            background: #00ff00; 
-            color: black; 
-            cursor: pointer;
-            font-weight: bold;
-          }
+          .neon-text { color: #00ffff; text-shadow: 0 0 10px #00ffff; font-size: 2.5em; }
+          table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; }
+          th, td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+          th { background: rgba(0, 255, 255, 0.2); color: #00ffff; }
+          input, button { padding: 8px; border: none; border-radius: 5px; }
+          input { background: rgba(255,255,255,0.9); color: #000; }
+          button { background: #00ff00; color: black; cursor: pointer; font-weight: bold; }
           button:hover { background: #00cc00; }
-          .success { color: #00ff00; padding: 10px; background: rgba(0,255,0,0.1); border-radius: 5px; }
-          .error { color: #ff4444; padding: 10px; background: rgba(255,0,0,0.1); border-radius: 5px; }
+          .success { color: #00ff00; padding: 10px; background: rgba(0,255,0,0.1); border-radius: 5px; margin: 10px 0; }
+          .error { color: #ff4444; padding: 10px; background: rgba(255,0,0,0.1); border-radius: 5px; margin: 10px 0; }
           .search-box { margin: 20px 0; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; }
+          .stats { display: flex; gap: 20px; margin: 20px 0; }
+          .stat-card { flex: 1; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; text-align: center; }
         </style>
       </head>
       <body>
@@ -113,12 +315,12 @@ app.get('/admin', async (req, res) => {
           <div class="search-box">
             <h3>🔍 Быстрый поиск пользователя</h3>
             <form action="/admin/search" method="get">
-              <input type="text" name="query" placeholder="Введите Telegram ID или username" style="width: 300px;">
-              <button type="submit">Найти</button>
+              <input type="text" name="query" placeholder="Введите Telegram ID или username" style="width: 300px; padding: 10px;">
+              <button type="submit" style="padding: 10px 20px;">Найти</button>
             </form>
           </div>
 
-          <h3>📊 Последние пользователи</h3>
+          <h3>📊 Все пользователи (${users?.length || 0})</h3>
           <table>
             <thead>
               <tr>
@@ -130,19 +332,9 @@ app.get('/admin', async (req, res) => {
               </tr>
             </thead>
             <tbody>
-              ${usersHtml || '<tr><td colspan="5" style="text-align: center;">Нет пользователей</td></tr>'}
+              ${usersHtml || '<tr><td colspan="5" style="text-align: center; padding: 20px;">Нет пользователей</td></tr>'}
             </tbody>
           </table>
-
-          <div style="margin-top: 30px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h3>💫 Создать нового пользователя</h3>
-            <form action="/admin/create-user" method="post">
-              <input type="number" name="telegramId" placeholder="Telegram ID" required>
-              <input type="text" name="username" placeholder="Username">
-              <input type="text" name="firstName" placeholder="Имя" required>
-              <button type="submit">Создать пользователя</button>
-            </form>
-          </div>
         </div>
       </body>
       </html>
@@ -156,9 +348,7 @@ app.get('/admin', async (req, res) => {
 app.get('/admin/search', async (req, res) => {
   try {
     const query = req.query.query;
-    if (!query) {
-      return res.redirect('/admin');
-    }
+    if (!query) return res.redirect('/admin');
 
     let users;
     
@@ -188,21 +378,21 @@ app.get('/admin/search', async (req, res) => {
         usersHtml += `
           <tr>
             <td>${user.telegram_id}</td>
-            <td>${user.username || 'N/A'}</td>
-            <td>${user.first_name || 'N/A'}</td>
-            <td>${user.balance} ⭐</td>
+            <td>${user.username || '—'}</td>
+            <td>${user.first_name || '—'}</td>
+            <td><strong>${user.balance} ⭐</strong></td>
             <td>
               <form action="/admin/add-balance" method="post" style="display: inline;">
                 <input type="hidden" name="telegramId" value="${user.telegram_id}">
-                <input type="number" name="amount" placeholder="Сумма" required style="width: 80px;">
-                <button type="submit">➕</button>
+                <input type="number" name="amount" placeholder="Сумма" required style="width: 80px; padding: 5px;">
+                <button type="submit" style="padding: 5px 10px; background: #00ff00; color: black; border: none; border-radius: 3px; cursor: pointer;">➕</button>
               </form>
             </td>
           </tr>
         `;
       });
     } else {
-      usersHtml = '<tr><td colspan="5" style="text-align: center;">Пользователь не найден</td></tr>';
+      usersHtml = '<tr><td colspan="5" style="text-align: center; padding: 20px;">Пользователь не найден</td></tr>';
     }
 
     res.send(`
@@ -250,6 +440,8 @@ app.post('/admin/add-balance', async (req, res) => {
       return res.redirect('/admin?error=Заполните все поля');
     }
 
+    console.log(`💰 Пополнение баланса: ${telegramId} +${amount}`);
+
     // Находим пользователя
     const { data: user, error: userError } = await supabase
       .from('users')
@@ -269,9 +461,7 @@ app.post('/admin/add-balance', async (req, res) => {
       .update({ balance: newBalance })
       .eq('telegram_id', parseInt(telegramId));
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (updateError) throw updateError;
 
     // Записываем транзакцию
     await supabase
@@ -287,72 +477,36 @@ app.post('/admin/add-balance', async (req, res) => {
         }
       });
 
-    // Отправляем уведомление пользователю в Telegram
-    try {
-      await bot.telegram.sendMessage(
-        parseInt(telegramId),
-        `🎉 *Ваш баланс пополнен!*\n\n➕ Добавлено: ${amount} звёзд\n✨ Новый баланс: ${newBalance} звёзд\n\nСпасибо за покупку! 🎰`,
-        { parse_mode: 'Markdown' }
-      );
-    } catch (tgError) {
-      console.log('Не удалось отправить уведомление пользователю:', tgError.message);
-    }
+    console.log(`✅ Баланс пополнен: ${telegramId} = ${newBalance} звезд`);
 
     res.redirect('/admin?success=true');
 
   } catch (error) {
-    console.error('Ошибка пополнения баланса:', error);
+    console.error('❌ Ошибка пополнения:', error);
     res.redirect(`/admin?error=${encodeURIComponent(error.message)}`);
   }
 });
 
-// Создание пользователя
-app.post('/admin/create-user', async (req, res) => {
-  try {
-    const { telegramId, username, firstName } = req.body;
-    
-    if (!telegramId || !firstName) {
-      return res.redirect('/admin?error=Заполните обязательные поля');
+// Health check
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'Ghost FluX Casino API', 
+    version: '1.0',
+    endpoints: {
+      user: '/api/user/:telegramId',
+      openCase: '/api/open-case',
+      openBonus: '/api/open-bonus',
+      inventory: '/api/inventory/:telegramId',
+      admin: '/admin'
     }
-
-    const { error } = await supabase
-      .from('users')
-      .upsert({
-        telegram_id: parseInt(telegramId),
-        username: username || null,
-        first_name: firstName,
-        balance: 0
-      }, { onConflict: 'telegram_id' });
-
-    if (error) {
-      throw error;
-    }
-
-    res.redirect('/admin?success=true');
-
-  } catch (error) {
-    res.redirect(`/admin?error=${encodeURIComponent(error.message)}`);
-  }
+  });
 });
 
 // Запускаем сервер
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Admin panel running on port ${PORT}`);
-  console.log(`📊 Admin URL: https://your-render-url.onrender.com/admin`);
-  
-  // Запускаем бота
-  startBot();
+  console.log(`🚀 Ghost FluX Casino API запущен на порту ${PORT}`);
+  console.log(`📊 Админ панель: https://your-render-url.onrender.com/admin`);
+  console.log(`🎮 Mini App API готов к работе!`);
 });
-
-// Функция запуска бота
-async function startBot() {
-  try {
-    await bot.launch();
-    console.log('✅ Bot started successfully!');
-  } catch (error) {
-    console.error('❌ Bot failed to start:', error.message);
-    console.log('💡 Bot is optional, admin panel will work without it');
-  }
-}
 
 export default app;
