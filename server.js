@@ -1,5 +1,5 @@
 import express from 'express';
-import { bot, startBot } from './bot/bot.js';
+import { bot } from './bot/bot.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -7,27 +7,34 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Health check endpoint
+app.use(express.json());
+
+// Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    service: 'Ghost FluX Bot',
-    botStatus: 'running',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', bot: 'webhook mode' });
 });
 
-// Запускаем сервер и бота
-app.listen(PORT, '0.0.0.0', () => {
+// Webhook endpoint for Telegram
+app.post(`/webhook/${process.env.TELEGRAM_BOT_TOKEN}`, (req, res) => {
+  bot.handleUpdate(req.body, res);
+});
+
+// Set webhook on startup
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // Запускаем бота
-  startBot().then(() => {
-    console.log('✅ Bot initialization completed');
-  }).catch(error => {
-    console.error('❌ Bot failed to start:', error);
-  });
+  try {
+    // Устанавливаем вебхук
+    const webhookUrl = `https://ghost-flux-casinoxxx.onrender.com/webhook/${process.env.TELEGRAM_BOT_TOKEN}`;
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log('✅ Webhook set successfully');
+    
+    // Запускаем бота в вебхук режиме
+    bot.startWebhook(`/webhook/${process.env.TELEGRAM_BOT_TOKEN}`, null, PORT);
+    console.log('✅ Bot started in webhook mode');
+  } catch (error) {
+    console.error('❌ Webhook setup failed:', error.message);
+  }
 });
 
-// Экспортируем для тестирования
 export default app;
