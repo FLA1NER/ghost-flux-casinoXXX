@@ -4,9 +4,10 @@
   "description": "Telegram Casino Mini App",
   "type": "module",
   "scripts": {
-    "start": "node server/api.js",
-    "dev": "nodemon server/api.js",
-    "bot": "node bot/bot.js"
+    "start": "node server.js",
+    "bot": "node bot/bot.js",
+    "dev": "nodemon server.js",
+    "install-deps": "npm install --omit=dev"
   },
   "dependencies": {
     "telegraf": "^4.16.3",
